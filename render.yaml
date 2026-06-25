@@ -1,0 +1,24 @@
+services:
+  - type: web
+    name: chapitas-bot
+    env: node
+    plan: free
+    buildCommand: npm install
+    startCommand: node index.js
+    envVars:
+      - key: TWILIO_ACCOUNT_SID
+        scope: build
+      - key: TWILIO_AUTH_TOKEN
+        scope: build
+      - key: TWILIO_WHATSAPP_NUMBER
+        scope: build
+      - key: TRELLO_KEY
+        scope: build
+      - key: TRELLO_TOKEN
+        scope: build
+      - key: TRELLO_BOARD_ID
+        scope: build
+      - key: TRELLO_LIST_ID
+        scope: build
+      - key: PORT
+        value: 3000
