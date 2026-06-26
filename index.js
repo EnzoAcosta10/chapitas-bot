@@ -18,10 +18,23 @@ const client = twilio(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN);
 
 // Almacenar sesiones de pedidos en construcción (en memoria, temporal)
 const pedidosPendientes = {};
+const camposOrdenados = ['nombre', 'celular', 'forma', 'tamano', 'color', 'parteAtras', 'collar', 'pago', 'faltaPagar'];
 
 // Categorías válidas para validar datos
 const FORMAS_VALIDAS = ['cuadrada', 'rectangular', 'redonda', 'ovalada', 'hexagonal', 'corazón'];
 const COLORES_VALIDOS = ['rojo', 'azul', 'verde', 'amarillo', 'negro', 'blanco', 'rosa', 'naranja', 'morado', 'plateado', 'dorado'];
+
+const camposNecesarios = {
+  nombre: '👤 Nombre de la mascota',
+  celular: '📱 Celular/Teléfono',
+  forma: '📐 Forma (cuadrada, redonda, etc)',
+  tamano: '📏 Tamaño (ej: 3cm)',
+  color: '🎨 Color',
+  parteAtras: '🔙 Parte de atrás (grabado o diseño)',
+  collar: '📿 ¿Incluye collar? (si/no)',
+  pago: '💰 Forma de pago (efectivo, transferencia, etc)',
+  faltaPagar: '❓ ¿Falta pagar? (si/no)',
+};
 
 // Función para parsear datos flexiblemente
 function parsearMensaje(texto) {
@@ -149,48 +162,61 @@ app.post('/webhook', async (req, res) => {
   console.log(`📱 Mensaje recibido de ${senderNumber}: ${incomingMessage}`);
 
   try {
-    // Parsear el mensaje flexiblemente
-    const datosParseados = parsearMensaje(incomingMessage);
-    const errores = validarDatos(datosParseados);
+    // Verificar si hay sesión pendiente
+    let datosActuales = pedidosPendientes[senderNumber];
 
-    // Si hay errores o datos faltantes
+    if (datosActuales) {
+      // Ya hay una sesión abierta, el usuario está respondiendo a una pregunta
+      console.log(`📝 Continuando sesión con ${senderNumber}`);
+
+      // Encontrar cuál es el campo que falta (el primero faltante)
+      let campoFaltante = null;
+      for (let campo of camposOrdenados) {
+        if (!datosActuales[campo]) {
+          campoFaltante = campo;
+          break;
+        }
+      }
+
+      // Agregar la respuesta al campo faltante
+      if (campoFaltante) {
+        datosActuales[campoFaltante] = incomingMessage;
+        console.log(`✏️ Completado ${campoFaltante}: ${incomingMessage}`);
+      }
+    } else {
+      // Nuevo pedido, parsear el mensaje
+      datosActuales = parsearMensaje(incomingMessage);
+    }
+
+    // Validar qué falta
+    const errores = validarDatos(datosActuales);
+
     if (errores.length > 0) {
-      // Crear sesión de pedido pendiente
-      pedidosPendientes[senderNumber] = datosParseados;
+      // Guardar la sesión
+      pedidosPendientes[senderNumber] = datosActuales;
 
-      const camposNecesarios = {
-        nombre: '👤 Nombre de la mascota',
-        celular: '📱 Celular/Teléfono',
-        forma: '📐 Forma (cuadrada, redonda, etc)',
-        tamano: '📏 Tamaño (ej: 3cm)',
-        color: '🎨 Color',
-        parteAtras: '🔙 Parte de atrás (grabado o diseño)',
-        collar: '📿 ¿Incluye collar? (si/no)',
-        pago: '💰 Forma de pago (efectivo, transferencia, etc)',
-        faltaPagar: '❓ ¿Falta pagar? (si/no)',
-      };
-
+      // Preguntar por el siguiente campo faltante
       const primerError = errores[0];
-      const mensaje = `Falta completar la información.\n\n${camposNecesarios[primerError]}\n\n¿Cuál es el ${primerError}?`;
+      const mensaje = `${camposNecesarios[primerError]}\n\n¿Cuál es?`;
 
       await enviarMensaje(senderNumber, mensaje);
       return res.sendStatus(200);
     }
 
-    // Todos los datos están completos y válidos
+    // Todos los datos están completos
     // Crear tarjeta en Trello
     const cardData = {
-      name: `${datosParseados.nombre} - ${datosParseados.tamano}`,
+      name: `${datosActuales.nombre} - ${datosActuales.tamano}`,
       desc: `**Datos del pedido:**\n\n` +
-            `👤 Nombre: ${datosParseados.nombre}\n` +
-            `📱 Celular: ${datosParseados.celular}\n` +
-            `📐 Forma: ${datosParseados.forma}\n` +
-            `📏 Tamaño: ${datosParseados.tamano}\n` +
-            `🎨 Color: ${datosParseados.color}\n` +
-            `🔙 Parte de atrás: ${datosParseados.parteAtras}\n` +
-            `📿 Collar: ${datosParseados.collar}\n` +
-            `💰 Pago: ${datosParseados.pago}\n` +
-            `❓ Falta pagar: ${datosParseados.faltaPagar}`,
+            `👤 Nombre: ${datosActuales.nombre}\n` +
+            `📱 Celular: ${datosActuales.celular}\n` +
+            `📐 Forma: ${datosActuales.forma}\n` +
+            `📏 Tamaño: ${datosActuales.tamano}\n` +
+            `🎨 Color: ${datosActuales.color}\n` +
+            `🔙 Parte de atrás: ${datosActuales.parteAtras}\n` +
+            `📿 Collar: ${datosActuales.collar}\n` +
+            `💰 Pago: ${datosActuales.pago}\n` +
+            `❓ Falta pagar: ${datosActuales.faltaPagar}`,
     };
 
     const response = await axios.post(
@@ -208,12 +234,12 @@ app.post('/webhook', async (req, res) => {
 
     // Responder al cliente
     await enviarMensaje(senderNumber,
-      `✅ ¡Pedido registrado correctamente!\n\n👤 ${datosParseados.nombre}\n📐 ${datosParseados.forma} - ${datosParseados.tamano}\n🎨 ${datosParseados.color}\n\nLo revisaremos pronto. ¡Gracias! 🎉`);
+      `✅ ¡Pedido registrado!\n\n👤 ${datosActuales.nombre}\n📐 ${datosActuales.forma} - ${datosActuales.tamano}\n🎨 ${datosActuales.color}\n\n¡Gracias! 🎉`);
 
     res.sendStatus(200);
   } catch (error) {
     console.error('Error procesando mensaje:', error.message);
-    await enviarMensaje(senderNumber, '⚠️ Hubo un error procesando tu pedido. Intenta nuevamente.');
+    await enviarMensaje(senderNumber, '⚠️ Error. Intenta nuevamente.');
     res.sendStatus(500);
   }
 });
